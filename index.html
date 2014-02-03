@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html class="no-js">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <title></title>
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- <script src="d3.js"></script> -->
+    <script src="//cdnjs.cloudflare.com/ajax/libs/d3/3.4.1/d3.min.js"></script>
+    <script src="//cdnjs.cloudflare.com/ajax/libs/q.js/1.0.0/q.min.js"></script>
+<style type="text/css">
+    #chartArea {
+        overflow: hidden;
+        display: inline-block;
+        padding: 0;
+        margin: 0;
+        background-color: transparent;
+        box-sizing: border-box;
+    }
+</style>
+</head>
+<body>
+<svg id="chartArea">
+
+</svg>
+<script>
+
+var width = 700
+var svg = d3.select('#chartArea').attr('width', width).attr('height','380')
+
+function shuffle(o){ //v1.0
+    for(var j, x, i = o.length; i; j = Math.floor(Math.random() * i), x = o[--i], o[i] = o[j], o[j] = x);
+    return o;
+};
+
+function drawState(metaArray) {
+    var levels = svg.selectAll('g')
+        .data(metaArray)
+        .enter()
+        .append('g')
+        .attr('transform', function(d,i){return "translate(0," + (d.level + 1) * 40 + ")";})
+
+    var circles = svg.selectAll('g').selectAll('circle')
+                    .data(function(d){ return d.data})
+
+    circles
+        .enter()
+        .append('circle')
+        .attr('cx', function (d, i) { return d.i * 50 + 20})
+        .style('fill', function (d) { return d.sorted ? 'green' : '#ccc'; })
+        .attr('r', function (d) { return d.val * 2})
+
+    circles
+        .transition()
+        .attr('cx', function (d, i) { return d.i * 50 + 20})
+        .attr('cy', function (d, i) { return - (d.y  || 0) * 40})
+        .style('fill', function (d) {
+            return d.sorted ? 'green' : '#ccc';
+        })
+        .attr('r', function (d) { return d.val * 2})
+
+    circles
+        .exit()
+        .attr('r', 0)
+        .remove()
+
+}
+
+function byOffsetLevel(offset, level) {
+    return metaArray.filter(function(dataset){return dataset.level === level && dataset.offset === offset})[0]
+}
+
+function selectPivot(copy, randomIndex, level, offset){
+    byOffsetLevel(offset, level).data[randomIndex].sorted = true
+    return pivot = copy.splice(randomIndex, 1)
+}
+
+function getLeast(copy, pivot) {
+    return copy.filter(function(el){return el <= pivot})
+}
+
+function getBigger(copy, pivot){
+    return copy.filter(function(el){return el > pivot })
+}
+
+function massage(arr, offset) {
+    return arr.map(function(x, i){
+        return {
+            val: x,
+            i: offset + i
+        }
+    })
+}
+
+function markSorted(copy, level, offset) {
+    if (copy.length == 1) {
+        var data = massage(copy, offset)
+        data[0].sorted = true
+        metaArray.push({
+            level: level,
+            offset: offset || 0,
+            data: data
+        })
+    }
+    return copy
+}
+
+function rearrange(newOrder, level, offset) {
+    return byOffsetLevel(offset, level).data.forEach(function(el, i){
+        return el.i = offset + newOrder.indexOf(el.val)
+    })
+}
+
+function timeout(x) {
+    var deferred = Q.defer()
+    setTimeout(function(){
+        deferred.resolve('done')
+    }, x)
+    return deferred.promise
+}
+
+function moveAllToLastLine(metaArray) {
+    var maxLevel = Math.max.apply([], metaArray.map(function(d){return d.level}))
+    var sorted = metaArray.map(function(d){
+        var sortedNode = JSON.parse(JSON.stringify(d.data.filter(function(el){return el.sorted})[0]))
+        sortedNode.y = maxLevel - d.level + 1
+        return sortedNode
+    })
+    console.log(sorted)
+    metaArray.push({
+        level: maxLevel + 1,
+        offset: 0,
+        data: sorted
+    })
+    timeout(1000).then(function(){
+        drawState(metaArray)
+        timeout(1000).then(function(){
+            byOffsetLevel(0, maxLevel + 1).data.map(function(el){
+             return el.y = 0})
+            drawState(metaArray)
+        })
+
+    })
+
+}
+
+function quicksort(array, level, offset) {
+  var deferred = Q.defer()
+  var step = 300
+  if (level === undefined) {level = 0}
+  if (offset === undefined) {offset = 0}
+  timeout(step).then(function(){
+      var copy = JSON.parse(JSON.stringify(array))
+      if (copy.length <= 1) {
+        markSorted(copy, level, offset)
+        drawState(metaArray)
+        return deferred.resolve(copy)
+      }
+      timeout(step).then(function(){
+          metaArray.push({
+            level: level,
+            offset: offset || 0,
+            data:  massage(array, offset)
+          })
+          drawState(metaArray)
+          timeout(step).then(function(){
+              var randomIndex, pivot, lesserHalf, biggerHalf
+              randomIndex = Math.floor(Math.random() * copy.length);
+              pivot = selectPivot(copy, randomIndex, level, offset);
+              drawState(metaArray)
+              timeout(step).then(function(){
+                  lesserHalf = getLeast(copy, pivot)
+                  biggerHalf = getBigger(copy, pivot)
+                  rearrange(lesserHalf.concat(pivot).concat(biggerHalf), level, offset);
+                  drawState(metaArray);
+                  timeout(step).then(function(){
+                      (function (lesserHalf, pivot, biggerHalf) {
+                        Q.all([
+                            quicksort(lesserHalf, level + 1, offset),
+                            quicksort(biggerHalf, level + 1, offset + lesserHalf.length + 1)
+                            ]).then(function(data){
+                                var lesserSorted = data[0],
+                                    biggerSorted = data[1]
+                                    deferred.resolve([].concat.call([], lesserSorted, pivot, biggerSorted))
+
+                            })
+                      })(lesserHalf, pivot, biggerHalf)
+                  })
+              })
+          })
+      })
+  })
+  return deferred.promise
+}
+var metaArray = []
+function doLoop(){
+    metaArray = []
+    quicksort(shuffle([1, 10, 9, 8, 2, 6, 7, 3, 5, 4])).then(function(sorted){
+        console.log('sorted is ', sorted)
+        moveAllToLastLine(metaArray)
+        setTimeout(function(){
+            svg.selectAll('g')
+                .data([])
+                .exit()
+                .remove()
+            doLoop()
+            
+        }, 5000)
+    })
+}
+doLoop()
+
+</script>
+</body>
+</html>
